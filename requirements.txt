@@ -1,0 +1,12 @@
+requests          # Ollama HTTP calls
+python-dotenv     # load .env
+rich              # pretty terminal output
+psutil            # CPU/RAM stats
+chromadb          # local vector DB
+pypdf             # PDF loading
+tiktoken          # token counting for chunking
+faster-whisper    # STT (needs ffmpeg on PATH)
+sounddevice       # mic input
+numpy             # audio array handling
+fastapi           # Web framework(API Layer
+uvicorn           # ASGI server(API Layer)

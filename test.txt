@@ -1,0 +1,28 @@
+The introduction of powerful bus systems, such as the CAN (Controller Area Network) bus
+[2] in the early1990s, initiated the second phase of ECU technology. Networking of electronic
+systems was now possible and with it, the implementation of new higher-level software functions, as well as the associated cost savings. For example, multiple systems could use signals
+from individual sensors without the need for costly wiring connections.
+Whenever higher-level software functions infl uence any functions of a single subsystem, this
+implementation approach is also known as an integrated powertrain, integrated chassis, integrated body, or integrated safety management. In distributed and networked systems, however,
+it is often no longer possible to assign software functions to a single ECU. As a result, software
+functions are divided into subfunctions for implementation in several ECUs.
+Whenever higher-level software functions infl uence functions of several subsystems, they can
+no longer be assigned to one specifi c subsystem. As discussed in the context of the introductory example, the traction control system (TCS) comprises a set of functions that affects both
+powertrain and chassis. Many other driver assistance systems, such as distance-sensing adaptive
+cruise control, also belong to this category. Functions working across subsystem boundaries
+exist in the areas of comfort systems and passive safety systems. One example of such a set
+of functions is the vehicle access system that includes the locking and theft deterrent systems.
+These examples underscore the fact that transitions among subsystems are at best fl uid if seen
+from a functional standpoint.
+Multiple access to and use of sensor signals by various ECUs can be handled in most instances
+without diffi culty. As soon as various ECUs (or better, several software functions) compete for
+access to the same actuators, however, the developer is presented with serious challenges, one
+of which is that of fi nding a suitable method of specifi cation. Another challenge is the defi nition
+of interfaces for accurate data and request exchange among the various functions and systems,
+so that, for example, commands sent to various actuators can be clearly coordinated. For a more
+detailed discussion of this and related topics, please consult CARTRONIC [3].
+Following an overview of the electronic systems assisting the powertrain, chassis, and body
+groups, this section also describes multimedia systems. Although these systems are not given
+wide exposure within the context of this book, an overview is nevertheless helpful for the purposes of identifying multimedia boundaries vis-à-vis those of the other application areas. Finally,
+several examples of functions are discussed, whose implementation is possible only after the
+electronic systems are communicating within a network.
