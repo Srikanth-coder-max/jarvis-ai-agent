@@ -10,3 +10,4 @@ sounddevice       # mic input
 numpy             # audio array handling
 fastapi           # Web framework(API Layer
 uvicorn           # ASGI server(API Layer)
+pyttsx3           # TTS (text-to-speech)
