@@ -1,35 +1,60 @@
 import requests
 import json
-from config import OLLAMA_BASE_URL, OLLAMA_MODEL
+from config import (
+    GROQ_API_KEY,
+    GROQ_BASE_URL,
+    GROQ_MODEL,
+    LLM_PROVIDER,
+    OLLAMA_BASE_URL,
+    OLLAMA_MODEL,
+)
 
 
 class LLMClient:
     def __init__(self):
-        self.url = f"{OLLAMA_BASE_URL}/api/chat"
-        self.model = OLLAMA_MODEL
+        self.provider = LLM_PROVIDER
+        if self.provider == "groq":
+            self.url = f"{GROQ_BASE_URL}/chat/completions"
+            self.model = GROQ_MODEL
+            self.headers = {
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            }
+        else:
+            self.url = f"{OLLAMA_BASE_URL}/api/chat"
+            self.model = OLLAMA_MODEL
+            self.headers = None
+
+    def _normalize_messages(self, messages):
+        return messages
 
     def _build_payload(self, messages, stream=False, **kwargs):
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": stream
-        }
+        payload = {"model": self.model, "messages": self._normalize_messages(messages), "stream": stream}
         payload.update(kwargs)
         return payload
 
+    def _parse_groq_response(self, response):
+        data = response.json()
+        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
     def generate(self, messages, timeout=120):
         try:
+            if self.provider == "groq" and not GROQ_API_KEY:
+                return "Error: GROQ_API_KEY is not set."
+
             payload = self._build_payload(messages, stream=False)
-            payload['options'] = {
-                'num_ctx': 1024, # smaller context window -> less RAM
-                'num_predict': 256 # limit reponse length
-            }
-            response = requests.post(
-                self.url,
-                json=payload,
-                timeout=timeout
-            )
+            if self.provider == "ollama":
+                payload["options"] = {
+                    "num_ctx": 1024,  # smaller context window -> less RAM
+                    "num_predict": 256,  # limit response length
+                }
+
+            response = requests.post(self.url, json=payload, headers=self.headers, timeout=timeout)
             response.raise_for_status()
+
+            if self.provider == "groq":
+                return self._parse_groq_response(response)
+
             data = response.json()
             return data.get("message", {}).get("content", "")
         except requests.exceptions.Timeout:
@@ -43,20 +68,32 @@ class LLMClient:
 
     def stream(self, messages):
         try:
+            if self.provider == "groq" and not GROQ_API_KEY:
+                print("Error: GROQ_API_KEY is not set.")
+                return ""
+
             payload = self._build_payload(messages, stream=True)
-            response = requests.post(
-                self.url,
-                json=payload,
-                stream=True
-            )
+            if self.provider == "groq":
+                payload["stream"] = True
+
+            response = requests.post(self.url, json=payload, headers=self.headers, stream=True)
             response.raise_for_status()
 
             full_response = ""
 
             for line in response.iter_lines():
                 if line:
-                    chunk = json.loads(line.decode('utf-8'))
-                    token = chunk.get("message", {}).get("content", "")
+                    decoded = line.decode("utf-8")
+                    if self.provider == "groq":
+                        if decoded.startswith("data: "):
+                            decoded = decoded.removeprefix("data: ").strip()
+                        if decoded == "[DONE]":
+                            break
+                        chunk = json.loads(decoded)
+                        token = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    else:
+                        chunk = json.loads(decoded)
+                        token = chunk.get("message", {}).get("content", "")
                     print(token, end="", flush=True)
                     full_response += token
             print()

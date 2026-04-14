@@ -44,3 +44,55 @@ def get_weather(city):
 
     except (KeyError, IndexError):
         return {"error": "Unexpected response format."}
+
+
+@tool(
+    name="search_web",
+    description="Search the web for latest information. Call when user asks for current news, latest updates, or real-time info.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Search query text"
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Number of results to return (1-10)"
+            }
+        },
+        "required": ["query"]
+    }
+)
+def search_web(query, max_results=5):
+    if not query or not str(query).strip():
+        return {"error": "Query cannot be empty."}
+
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        return {"error": "ddgs is not installed. Run: pip install ddgs"}
+
+    try:
+        limit = int(max_results)
+    except (TypeError, ValueError):
+        limit = 5
+
+    limit = max(1, min(limit, 10))
+
+    try:
+        output = []
+        with DDGS() as ddgs:
+            for row in ddgs.text(query, max_results=limit):
+                output.append({
+                    "title": row.get("title", ""),
+                    "url": row.get("href", ""),
+                    "snippet": row.get("body", "")
+                })
+
+        return {
+            "query": query,
+            "results": output
+        }
+    except Exception as e:
+        return {"error": f"Web search failed: {e}"}

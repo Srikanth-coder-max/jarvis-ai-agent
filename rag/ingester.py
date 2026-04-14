@@ -1,6 +1,8 @@
 import os
-import requests
+from typing import Any, cast
+
 import chromadb
+from chromadb.utils import embedding_functions
 from pypdf import PdfReader
 from config import CHROMA_PATH, EMBED_MODEL
 
@@ -9,10 +11,13 @@ class Ingester:
     def __init__(self):
         # Initialize persistent chromaDB client(stored on disk)
         self.client = chromadb.PersistentClient(path=CHROMA_PATH)
-        self.collections = self.client.get_or_create_collection(
-            name="documents")  # Get or create a collection (like a table in DB)
-        self.embed_model = EMBED_MODEL  # Store embedding model name
-        self.embed_url = "http://localhost:11434/api/embed"  # ollama embedding endpoint
+        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=EMBED_MODEL
+        )
+        self.collection = self.client.get_or_create_collection(
+            name="documents",
+            embedding_function=cast(Any, self.embedding_function),
+        )  # Get or create a collection (like a table in DB)
 
     def load_document(self, file_path):
         # check file type
@@ -51,52 +56,27 @@ class Ingester:
             chunks.append(" ".join(current_chunk))
         return chunks
 
-    def generate_embedding(self, chunks):
-        embeddings = []
-
-        for chunk in chunks:
-            response = requests.post(
-                self.embed_url,
-                json={
-                    'model': self.embed_model,
-                    'input': chunk
-                }
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            # print(data.keys())
-
-            # Extract the embedding vector
-            embeddings.append(data.get("embeddings", [])[0])
-        return embeddings
-
-    def store(self, chunks, embeddings, doc_name):
+    def store(self, chunks, doc_name):
         try:
-            self.collections.delete(
+            self.collection.delete(
                 where={"source": doc_name}
             )
         except Exception:
             pass
         ids = []  # Each entry must be have unique id
-        documents = []
-        vectors = []
         metadatas = []
 
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, chunk in enumerate(chunks):
             # creating unique ID per chunk
             chunk_id = f"{doc_name}_{i}"
 
             ids.append(chunk_id)
-            documents.append(chunk)
-            vectors.append(embedding)
             metadatas.append({'source': doc_name})
 
         # Store in chromaDB
-        self.collections.add(
+        self.collection.add(
             ids=ids,
-            documents=documents,
-            embeddings=vectors,
+            documents=chunks,
             metadatas=metadatas
         )
 
@@ -109,10 +89,8 @@ class Ingester:
         text = self.load_document(file_path)
         # Step 2: Chunk text
         chunks = self.chunk_text(text)
-        # Step 3: Generate embeddings
-        embeddings = self.generate_embedding(chunks)
-        # Step 4: Store in DB
-        self.store(chunks, embeddings, doc_name)
+        # Step 3: Store in DB
+        self.store(chunks, doc_name)
 
         print(f"Ingested {len(chunks)} chunks from {doc_name}")
 

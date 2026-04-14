@@ -11,3 +11,6 @@ numpy             # audio array handling
 fastapi           # Web framework(API Layer
 uvicorn           # ASGI server(API Layer)
 pyttsx3           # TTS (text-to-speech)
+ddgs==9.5.5      # DuckDuckGo search for live web/news queries
+sentence-transformers # local embeddings for RAG
+ddgs              # DuckDuckGo search for live web/news queries
