@@ -19,3 +19,14 @@ chroma_db/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Logs
+*.log
