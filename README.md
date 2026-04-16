@@ -1,49 +1,91 @@
-# jarvis-ai-agent
+# Jarvis AI Agent
 
-Local AI assistant built with Groq for chat and voice, plus local sentence-transformer embeddings for RAG.
+Jarvis is a local-first AI assistant that combines chat, voice, live web search, and document-grounded RAG in one interface. It is built to solve the context-loss problem that happens when a chatbot cannot remember prior conversation, search your files, or answer from live sources without switching tools.
 
-## Installation
+## Description
 
-This project can be run on Windows, macOS, or Linux as long as you have Python installed.
+This project is a personal AI workspace for grounded answers, not just generic chat. It uses hybrid memory plus retrieval over local documents so responses can stay relevant, personalized, and searchable across sessions.
 
-### 1. Clone the repository
+## Tech Stack
 
-```bash
-git clone <repository-url>
-cd jarvis-ai-agent
+| Area | Stack |
+| --- | --- |
+| Language | Python |
+| UI | Streamlit |
+| LLM layer | Groq-compatible client, Ollama-compatible fallback |
+| RAG | sentence-transformers, ChromaDB, pypdf, tiktoken |
+| Memory | JSON chat history, profile memory, persistent Chroma archive |
+| Voice | faster-whisper, sounddevice, pyttsx3 |
+| Web research | ddgs |
+| API layer | FastAPI, Uvicorn |
+| System tools | psutil |
+
+## What Problem It Solves
+
+Most general-purpose assistants forget what you said a few turns ago, cannot answer from your own documents, and are weak when a task needs both local context and live web information. Jarvis solves that by combining short-term chat memory, long-term vector memory, document retrieval, and tool-based web/system access.
+
+## Architecture
+
+Jarvis follows a two-path architecture: one path indexes knowledge offline, and the other path serves grounded answers at runtime.
+
+```mermaid
+flowchart LR
+	U[User Input] --> UI[main.py / app.py]
+	UI --> B[core/brain.py]
+
+	subgraph Offline_Indexing[Offline indexing]
+		D1[PDF / TXT / Web notes] --> I[rag/ingester.py]
+		I --> C[(ChromaDB)]
+	end
+
+	subgraph Runtime[Runtime response flow]
+		B --> M[Hybrid Memory\nchat history + user profile + archive]
+		B --> R[rag/retriever.py]
+		R --> C
+		M --> L[core/llm_client.py]
+		R --> L
+		L --> T[tools/registry.py\nsystem + web tools]
+		T --> O[Final Answer]
+	end
+
+	UI --> V[voice/stt.py + voice/tts.py]
+	V --> B
+	O --> UI
 ```
 
-Replace `<repository-url>` with the URL of your fork or the original repository.
+## Key Features & Impact
 
-### 2. Create and activate a virtual environment
+- Hybrid memory keeps recent turns in `memory/chat_history.json`, profile facts in `memory/user_profile.json`, and semantically searchable history in Chroma.
+- RAG grounds answers in local documents instead of relying only on model memory, which makes the assistant more useful for private notes and project knowledge.
+- Voice mode lets you speak to Jarvis and hear replies back with speech-to-text and text-to-speech support.
+- Live web research is available for current events and time-sensitive questions, so the assistant does not depend on stale context alone.
+- System tools can expose local machine stats and process information when you explicitly ask for them.
 
-Windows PowerShell:
+## Quantitative Results
+
+If you have benchmarked Jarvis, keep the table below and replace the placeholder values with your measured results.
+
+| Metric | Score |
+| --- | --- |
+| Answer grounding accuracy | Add your measured value |
+| Retrieval hit rate | Add your measured value |
+| Average response latency | Add your measured value |
+
+## How to Run
+
+Use `requirements.txt` for the current dependency set.
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-```
-
-macOS / Linux:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-If your clone includes `requirement.txt`, use that file instead.
+Then start either the CLI assistant with `python main.py` or the Streamlit UI with `streamlit run app.py`.
 
-### 4. Configure Groq and local embeddings
+## Configuration
 
-Set a Groq API key for chat and voice.
-
-For Groq, create a `.env` file in the project root with:
+Create a `.env` file in the project root and set the provider and memory paths you want to use.
 
 ```env
 LLM_PROVIDER=groq
@@ -53,79 +95,33 @@ GROQ_MODEL=llama-3.1-8b-instant
 GROQ_STT_MODEL=whisper-large-v3-turbo
 EMBED_MODEL=all-MiniLM-L6-v2
 CHAT_MEMORY_PATH=./memory/chat_history.json
-MAX_CHAT_HISTORY=10
 USER_PROFILE_PATH=./memory/user_profile.json
 CONVERSATION_MEMORY_COLLECTION=conversation_memory
 CONVERSATION_MEMORY_RECALL_K=4
+MAX_CHAT_HISTORY=10
 ```
 
-If you only want Groq for speech recognition, set `STT_PROVIDER=groq` and keep `LLM_PROVIDER=ollama`.
+If you already have an old `chroma_db` created with a different embedding model, delete it and reingest your documents so retrieval stays aligned with the current embeddings.
 
-RAG now uses a local sentence-transformer model, so Ollama is no longer required for embeddings.
+## Demo
 
-If you already have an old `chroma_db` created with Ollama embeddings, delete it and reingest your documents so the stored vectors match the new embedding model.
+Add a short GIF or screenshot of the Streamlit UI here so the project feels production-ready. A good default is `assets/demo.gif` or `assets/dashboard.png` once you capture one.
 
-### 5. Run Jarvis
+## Research Note
 
-Text mode:
-
-```bash
-python main.py
-```
-
-Voice mode:
-
-```bash
-python main.py --voice
-```
-
-## Voice mode requirements
-
-Voice mode uses `faster-whisper`, `sounddevice`, and `pyttsx3`.
-
-- On Windows, ensure microphone access is enabled.
-- On Linux, you may need `ffmpeg` and system audio packages installed.
-- If voice input fails, try text mode first to confirm the core assistant is working.
-
-## Optional: Add your own documents
-
-The project includes a Chroma-based RAG pipeline. You can ingest your own `.pdf` or `.txt` files using the ingester in `rag/`.
-
-## Internet Research Mode
-
-Jarvis supports broad internet research across topics using `research_web`:
-
-- Query expansion for better coverage (including date-aware variants)
-- Lightweight page fetch + text extraction from top results
-- Evidence ranking using lexical overlap and trusted-domain bonus
-- Citation-ready output so responses can reference sources as `[1]`, `[2]`
-- Basic safety screening for clearly unsafe requests
-
-For very time-sensitive or specialized topics, consider adding dedicated APIs (for example sports, finance, weather) and keeping web search as fallback.
+If you want to link the project to research, cite the retrieval and memory approach you followed here. That is the right place to mention any paper or benchmark that inspired the assistant design.
 
 ## Project Overview
 
-- `main.py` starts the assistant.
-- `core/` contains the LLM client, conversation brain, and memory layer.
+- `main.py` starts the CLI assistant.
+- `app.py` runs the Streamlit interface.
+- `core/` contains the LLM client, brain, and memory stores.
 - `rag/` handles document ingestion and retrieval.
 - `tools/` contains system and web tools.
 - `voice/` contains speech-to-text and text-to-speech support.
 
 ## Troubleshooting
 
-- If you use Groq and get an authorization error, verify that `GROQ_API_KEY` is set correctly in `.env`.
-- If Groq speech recognition fails, verify that `STT_PROVIDER=groq` and `GROQ_STT_MODEL` are set correctly in `.env`.
-- If audio recording fails, verify that your microphone is available to the operating system.
-- If embeddings or retrieval fail, delete `chroma_db` and reingest your documents.
-
-## Persistent Conversation Memory
-
-Jarvis now uses hybrid memory:
-
-- Short-term memory: recent turns in `memory/chat_history.json`
-- Long-term memory: vectorized conversation archive in Chroma for semantic recall
-- Profile memory: stable user attributes in `memory/user_profile.json`
-
-- Recent-turn window is controlled by `MAX_CHAT_HISTORY`
-- Number of recalled long-term memories per query is controlled by `CONVERSATION_MEMORY_RECALL_K`
-- To clear everything, call `Brain.reset()`
+- If Groq authentication fails, verify that `GROQ_API_KEY` is set correctly in `.env`.
+- If speech recognition fails, verify that the microphone is available and the STT provider is set correctly.
+- If retrieval looks stale or incorrect, clear `chroma_db` and reingest the source documents.

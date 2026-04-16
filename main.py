@@ -23,7 +23,7 @@ def main():
         while True:
             try:
                 # Step 1: Listen
-                user_input = stt.listen(5)
+                user_input = stt.listen(duration=15)
 
                 # Skip empty or failed input
                 if not user_input or "STT Error" in user_input:

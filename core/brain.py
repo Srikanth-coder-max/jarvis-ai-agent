@@ -260,8 +260,23 @@ class Brain:
 
                 # step 4: execute tool
                 result = call_tool(tool_name, arguments)
+                if isinstance(result, dict):
+                    answer = result.get("answer")
 
-                # If a tool fails, return a transparent error instead of guessing.
+                    if answer:
+                        return answer
+
+                    # 🔥 HARD fallback (no hallucination)
+                    raw = result.get("raw", [])
+                    if raw:
+                        return raw[0].get("snippet", "I couldn't find a reliable answer.")
+
+                    return "I couldn't find a reliable answer for that."
+                # ADD THIS BLOCK HERE
+                if isinstance(result, dict) and "answer" in result and result["answer"]:
+                    return result["answer"]
+
+                # existing error handling
                 if isinstance(result, dict) and result.get("error"):
                     return f"I could not complete '{tool_name}': {result['error']}"
                 if isinstance(result, str) and result.lower().startswith("error"):
