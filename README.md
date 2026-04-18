@@ -4,7 +4,7 @@ Jarvis is a local-first AI assistant that combines chat, voice, live web search,
 
 ## Description
 
-This project is a personal AI workspace for grounded answers, not just generic chat. It uses hybrid memory plus retrieval over local documents so responses can stay relevant, personalized, and searchable across sessions.
+This project is a personal AI workspace for grounded answers, not just generic chat. It uses hybrid memory plus retrieval over local documents so responses can stay relevant, personalized, and searchable across sessions. It also supports Todoist task actions (add, list, complete) from natural language prompts.
 
 ## Tech Stack
 
@@ -17,7 +17,7 @@ This project is a personal AI workspace for grounded answers, not just generic c
 | Memory | JSON chat history, profile memory, persistent Chroma archive |
 | Voice | faster-whisper, sounddevice, pyttsx3 |
 | Web research | ddgs |
-| API layer | FastAPI, Uvicorn |
+| API layer | FastAPI, Uvicorn (optional / experimental) |
 | System tools | psutil |
 
 ## What Problem It Solves
@@ -60,6 +60,7 @@ flowchart LR
 - Voice mode lets you speak to Jarvis and hear replies back with speech-to-text and text-to-speech support.
 - Live web research is available for current events and time-sensitive questions, so the assistant does not depend on stale context alone.
 - System tools can expose local machine stats and process information when you explicitly ask for them.
+- Todoist task tools let Jarvis add, list, and complete tasks using natural language prompts.
 
 ## Quantitative Results
 
@@ -83,6 +84,22 @@ pip install -r requirements.txt
 
 Then start either the CLI assistant with `python main.py` or the Streamlit UI with `streamlit run app.py`.
 
+Optional voice mode:
+
+```powershell
+python main.py --voice
+```
+
+## Common Commands
+
+Use short command-style prompts for best tool routing reliability.
+
+- `list tasks`
+- `show my tasks`
+- `add task play badminton at 6.00pm`
+- `create a task submit report tomorrow 9am`
+- `complete task play badminton`
+
 ## Configuration
 
 Create a `.env` file in the project root and set the provider and memory paths you want to use.
@@ -93,6 +110,7 @@ STT_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=llama-3.1-8b-instant
 GROQ_STT_MODEL=whisper-large-v3-turbo
+TODOIST_API_KEY=your_todoist_api_token_here
 EMBED_MODEL=all-MiniLM-L6-v2
 CHAT_MEMORY_PATH=./memory/chat_history.json
 USER_PROFILE_PATH=./memory/user_profile.json
@@ -123,5 +141,7 @@ If you want to link the project to research, cite the retrieval and memory appro
 ## Troubleshooting
 
 - If Groq authentication fails, verify that `GROQ_API_KEY` is set correctly in `.env`.
+- If you see `429 Too Many Requests` from Groq, wait briefly and retry, or switch provider by setting `LLM_PROVIDER=ollama`.
+- If Todoist task tools fail, verify that `TODOIST_API_KEY` is set in `.env`.
 - If speech recognition fails, verify that the microphone is available and the STT provider is set correctly.
 - If retrieval looks stale or incorrect, clear `chroma_db` and reingest the source documents.

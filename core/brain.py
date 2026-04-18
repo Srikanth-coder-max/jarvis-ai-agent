@@ -64,7 +64,10 @@ class Brain:
             "I am Jarvis, your personal AI assistant.\n\n"
             "User: What do you think about electric cars?\n"
             "Electric cars are strong for efficiency and low running costs, while charging access and battery cost are key tradeoffs.\n\n"
-
+            "User: Add a task to study ML tomorrow"
+            '{"tool": "add_task", "arguments": {"title": "study ML", "due_date": "tomorrow"}}'
+            "User: Show my tasks"
+            '{"tool": "list_tasks", "arguments": {}}'
             "Available tools:\n"
             f"{tools_description}\n"
             )
@@ -216,6 +219,54 @@ class Brain:
         # Step 4: Not a valid tool call
         return None
 
+    def _get_latest_user_question(self, messages):
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+
+            content = message.get("content", "")
+            if not content or content.lower().startswith("tool result:"):
+                continue
+
+            marker = "question:"
+            lowered = content.lower()
+            if marker in lowered:
+                idx = lowered.rfind(marker)
+                return content[idx + len(marker):].strip()
+
+            return content.strip()
+
+        return ""
+
+    def _is_generic_weather_request(self, text):
+        lowered = (text or "").lower().strip()
+        if not lowered:
+            return False
+
+        if "weather" not in lowered:
+            return False
+
+        # Explicit location present, e.g., "weather in chennai".
+        explicit_location = re.search(r"\b(?:in|at|for)\s+([a-zA-Z][a-zA-Z\s\-\.',]{1,60})", lowered)
+        if explicit_location:
+            location_text = explicit_location.group(1).strip()
+            generic_tokens = {
+                "today", "now", "current", "current location", "my location", "here", "me", "tomorrow"
+            }
+            if location_text not in generic_tokens:
+                return False
+
+        generic_phrases = [
+            "current weather",
+            "weather now",
+            "weather today",
+            "weather currently",
+            "weather at my location",
+            "weather in my location",
+            "weather here",
+        ]
+        return any(phrase in lowered for phrase in generic_phrases) or "weather" in lowered
+
     def _run_tool_loop(self, messages):
         max_loops = 3
         for loop_idx in range(max_loops):
@@ -258,23 +309,28 @@ class Brain:
                 # Step 3: extract tool name and arguments
                 tool_name, arguments = tool_call
 
+                if tool_name == "get_weather":
+                    latest_question = self._get_latest_user_question(messages)
+                    if self._is_generic_weather_request(latest_question):
+                        arguments = dict(arguments or {})
+                        arguments["city"] = "current"
+
                 # step 4: execute tool
                 result = call_tool(tool_name, arguments)
-                if isinstance(result, dict):
+                if tool_name == "search_web" and isinstance(result, dict):
                     answer = result.get("answer")
-
                     if answer:
                         return answer
 
-                    # 🔥 HARD fallback (no hallucination)
+                    # Hard fallback for web search only.
                     raw = result.get("raw", [])
                     if raw:
                         return raw[0].get("snippet", "I couldn't find a reliable answer.")
 
+                    if result.get("error"):
+                        return f"I could not complete '{tool_name}': {result['error']}"
+
                     return "I couldn't find a reliable answer for that."
-                # ADD THIS BLOCK HERE
-                if isinstance(result, dict) and "answer" in result and result["answer"]:
-                    return result["answer"]
 
                 # existing error handling
                 if isinstance(result, dict) and result.get("error"):

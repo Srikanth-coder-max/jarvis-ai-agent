@@ -1,6 +1,36 @@
 import requests
 import re
+import os
+from urllib.parse import quote
 from tools.registry import tool
+from config import WEATHER_DEFAULT_CITY
+from todoist_api_python.api import TodoistAPI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+def _resolve_weather_city(city):
+    text = (city or "").strip()
+    lowered = re.sub(r"[^a-zA-Z\s]", " ", text.lower())
+    lowered = re.sub(r"\s+", " ", lowered).strip()
+
+    if not lowered:
+        return WEATHER_DEFAULT_CITY
+
+    generic_tokens = {
+        "weather", "current", "now", "today", "what", "is", "the", "in", "at", "for"
+    }
+    words = [w for w in lowered.split() if w]
+
+    # Generic requests like "what is the current weather" should use configured default city.
+    if words and all(w in generic_tokens for w in words):
+        return WEATHER_DEFAULT_CITY
+
+    if lowered in {"current", "current weather", "weather now", "weather"}:
+        return WEATHER_DEFAULT_CITY
+
+    return text
 
 @tool(
     name="get_weather",
@@ -17,31 +47,36 @@ from tools.registry import tool
     }
 )
 def get_weather(city):
-    try:
-        if not city or city.lower() == "current":
-            city = ""
+    requested_city = _resolve_weather_city(city)
+    candidates = [requested_city]
+    if requested_city.lower() != WEATHER_DEFAULT_CITY.lower():
+        candidates.append(WEATHER_DEFAULT_CITY)
 
-        url = f"https://wttr.in/{city}?format=j1"
+    for candidate in candidates:
+        try:
+            city_query = quote(candidate)
+            url = f"https://wttr.in/{city_query}?format=j1"
 
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        data = response.json()
+            response = requests.get(url, timeout=15)
+            response.raise_for_status()
+            data = response.json()
 
-        current = data['current_condition'][0]
+            current = data["current_condition"][0]
 
-        return {
-            "city": city if city else "current location",
-            "temperature_c": current["temp_C"],
-            "feels_like_c": current["FeelsLikeC"],
-            "description": current["weatherDesc"][0]["value"],
-            "humidity": current["humidity"],
-            "wind_kmph": current["windspeedKmph"]
-        }
+            return {
+                "city": candidate,
+                "temperature_c": current["temp_C"],
+                "feels_like_c": current["FeelsLikeC"],
+                "description": current["weatherDesc"][0]["value"],
+                "humidity": current["humidity"],
+                "wind_kmph": current["windspeedKmph"],
+            }
+        except requests.exceptions.RequestException:
+            continue
+        except (KeyError, IndexError, ValueError):
+            continue
 
-    except requests.exceptions.RequestException:
-        return {"error": "Unable to fetch weather data."}
-    except (KeyError, IndexError):
-        return {"error": "Unexpected response format."}
+    return {"error": "Unable to fetch weather data."}
 
 
 
@@ -74,7 +109,7 @@ def search_web(query, max_results=5):
 
     def _score_result(query, text):
         q_words = set(query.lower().split())
-        t_words = set(text.lower().split())  # ✅ FIXED
+        t_words = set(text.lower().split())  # FIXED
         return len(q_words & t_words)
 
     try:
@@ -108,7 +143,7 @@ def search_web(query, max_results=5):
 
         raw_results = results[:5]
 
-        # 🔥 Extract answer
+        # Extract answer
         answer = extract_answer(query, raw_results)
 
         return {
@@ -139,7 +174,7 @@ def extract_answer(query, results):
         for s in sentences:
             s_lower = s.lower()
 
-            # ❌ skip bad sentences
+            # skip bad sentences
             if s.strip().endswith("?"):
                 continue
 
@@ -178,5 +213,110 @@ def extract_answer(query, results):
 
     return best
 
-if __name__ == "__main__":
-    print(search_web("what is the name of the player, who wins the orange cap in IPL 2018?"))
+
+API_KEY = (os.getenv("TODOIST_API_KEY") or "").strip()
+api = TodoistAPI(API_KEY) if API_KEY else None
+
+
+def _get_todoist_client():
+    if api is None:
+        return None, "TODOIST_API_KEY is not configured in environment."
+    return api, None
+
+
+def _normalize_tasks(raw_tasks):
+    tasks = []
+    for item in raw_tasks:
+        if isinstance(item, list):
+            tasks.extend(item)
+        else:
+            tasks.append(item)
+    return tasks
+
+
+@tool(
+    name='add_task',
+    description="Add a task to Todoist",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "due_date": {
+                "type": "string",
+                "description": "Natural language date like 'tomorrow 6pm'"
+            }
+        },
+        "required": ["title"]
+    }
+)
+
+def add_task(title, due_date=None):
+    client, error = _get_todoist_client()
+    if client is None:
+        return error or "TODOIST_API_KEY is not configured in environment."
+
+    try:
+        task = client.add_task(
+            content=title,
+            due_string=due_date if due_date else None
+        )
+        return f"Task added: {task.content}"
+    except Exception as e:
+        return f"Error adding task: {e}"
+
+
+@tool(
+    name="list_task",
+    description="List active tasks",
+    parameters={"type": "object", "properties": {}}
+)
+def list_task():
+    client, error = _get_todoist_client()
+    if client is None:
+        return error or "TODOIST_API_KEY is not configured in environment."
+
+    try:
+        tasks = _normalize_tasks(client.get_tasks())
+        if not tasks:
+            return "No tasks found"
+        output = []
+        for t in tasks[:10]:
+            output.append(f"- {t.content}")
+        return "\n".join(output)
+    except Exception as e:
+        return f"Error listing tasks: {e}"
+    
+@tool(
+    name="complete_task",
+    description="Mark a task as completed",
+    parameters={
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"}
+        },
+        "required": ["title"]
+    }
+)
+def complete_task(title):
+    client, error = _get_todoist_client()
+    if client is None:
+        return error or "TODOIST_API_KEY is not configured in environment."
+
+    try:
+        tasks = _normalize_tasks(client.get_tasks())
+
+        for t in tasks:
+            if t.content.lower() == title.lower():
+                complete_fn = getattr(client, "close_task", None) or getattr(client, "complete_task", None)
+                if not callable(complete_fn):
+                    return "Error completing task: Todoist client does not support task completion."
+                complete_fn(t.id)
+                return f"Task completed: {title}"
+
+        return "Task not found."
+    except Exception as e:
+        return f"Error completing task: {e}"
+
+
+# if __name__ == "__main__":
+#     print(search_web("what is the name of the player, who wins the orange cap in IPL 2018?"))
