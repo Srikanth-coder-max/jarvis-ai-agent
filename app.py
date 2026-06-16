@@ -30,6 +30,14 @@ def get_tts():
     return TTS()
 
 
+def get_browser_audio_transcript(audio_file):
+    stt = get_stt()
+    if stt is None:
+        return "STT Error: Voice input is unavailable in this deployment."
+
+    return stt.transcribe_uploaded_audio(audio_file)
+
+
 def reset_chat() -> None:
     brain = get_brain()
     brain.reset()
@@ -71,15 +79,10 @@ def main() -> None:
             st.success("Memory cleared.")
 
         st.subheader("Voice mode")
-        voice_duration = st.slider("Listen duration (seconds)", min_value=3, max_value=20, value=7, step=1)
         auto_speak = st.checkbox("Auto-speak replies", value=False)
-        start_voice = st.button("Start listening", use_container_width=True)
         speak_last = st.button("Speak last reply", use_container_width=True)
 
-        # st.subheader("Try these")
-        # st.markdown("- What is the latest AI news this week?")
-        # st.markdown("- Check my system usage")
-        # st.markdown("- What is the weather in Chennai?")
+        st.caption("Use the audio recorder below to speak from your browser.")
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
@@ -106,22 +109,19 @@ def main() -> None:
             st.info("No assistant reply to speak yet.")
 
     voice_prompt = ""
-    if start_voice:
-        with st.spinner("Listening..."):
-            stt = get_stt()
-            if stt is None:
-                st.warning("Voice input is unavailable in this deployment.")
-                transcript = ""
-            else:
-                transcript = stt.listen(voice_duration)
+    browser_audio = st.audio_input("Record audio in your browser", help="Click the mic, speak, then stop recording.")
+    if browser_audio is not None:
+        if st.button("Transcribe recording", use_container_width=True):
+            with st.spinner("Transcribing browser audio..."):
+                transcript = get_browser_audio_transcript(browser_audio)
 
-        if not transcript:
-            st.warning("No voice input captured.")
-        elif "STT Error" in transcript:
-            st.error(transcript)
-        else:
-            voice_prompt = transcript.strip()
-            st.info(f"You said: {voice_prompt}")
+            if not transcript:
+                st.warning("No voice input captured.")
+            elif "STT Error" in transcript:
+                st.error(transcript)
+            else:
+                voice_prompt = transcript.strip()
+                st.info(f"You said: {voice_prompt}")
 
     prompt = st.chat_input("Ask Jarvis anything...")
     final_prompt = voice_prompt if voice_prompt else (prompt or "")

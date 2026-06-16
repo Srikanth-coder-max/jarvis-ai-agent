@@ -1,11 +1,11 @@
 import io
 import re
+import tempfile
 import wave
 from typing import Optional
 
 import requests
 from faster_whisper import WhisperModel
-import sounddevice as sd
 import numpy as np
 
 from config import (
@@ -34,6 +34,11 @@ class STT:
             )
 
     def _record_audio(self, duration):
+        try:
+            import sounddevice as sd
+        except Exception as exc:
+            raise RuntimeError(f"Sounddevice is unavailable: {exc}") from exc
+
         print("Listening")
         audio = sd.rec(
             int(duration * 16000),
@@ -44,6 +49,22 @@ class STT:
         sd.wait()
         print("Processing...")
         return np.squeeze(audio).astype(np.float32)
+
+    def _audio_bytes_to_wav(self, audio_bytes, file_suffix=".wav"):
+        if isinstance(audio_bytes, (bytes, bytearray)):
+            return io.BytesIO(audio_bytes)
+
+        if hasattr(audio_bytes, "getvalue"):
+            return io.BytesIO(audio_bytes.getvalue())
+
+        if hasattr(audio_bytes, "read"):
+            return io.BytesIO(audio_bytes.read())
+
+        if isinstance(audio_bytes, str):
+            with open(audio_bytes, "rb") as file_handle:
+                return io.BytesIO(file_handle.read())
+
+        raise TypeError(f"Unsupported audio input type: {type(audio_bytes)!r}")
 
     def _transcribe_local(self, audio):
         if self.model is None:
@@ -107,6 +128,70 @@ class STT:
         text = payload.get("text", "").strip()
         return self._normalize_transcript(text)
 
+    def _transcribe_groq_bytes(self, audio_bytes):
+        if not GROQ_API_KEY:
+            return "STT Error: GROQ_API_KEY is not set."
+
+        wav_buffer = self._audio_bytes_to_wav(audio_bytes)
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}"
+        }
+        files = {
+            "file": ("speech.wav", wav_buffer, "audio/wav")
+        }
+        data = {
+            "model": GROQ_STT_MODEL,
+            "language": STT_LANGUAGE,
+            "prompt": STT_INITIAL_PROMPT,
+        }
+
+        response = requests.post(
+            f"{GROQ_BASE_URL}/audio/transcriptions",
+            headers=headers,
+            files=files,
+            data=data,
+            timeout=120,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        text = payload.get("text", "").strip()
+        return self._normalize_transcript(text)
+
+    def _transcribe_local_file(self, audio_file):
+        if self.model is None:
+            return "STT Error: Local Whisper model is not initialized."
+
+        if hasattr(audio_file, "name") and audio_file.name:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_file.write(audio_file.getvalue())
+                temp_path = temp_file.name
+        else:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                temp_file.write(audio_file.read())
+                temp_path = temp_file.name
+
+        try:
+            segments, _ = self.model.transcribe(
+                temp_path,
+                beam_size=max(1, STT_BEAM_SIZE),
+                language=STT_LANGUAGE or None,
+                initial_prompt=STT_INITIAL_PROMPT or None,
+                condition_on_previous_text=False,
+                vad_filter=True,
+                temperature=0.0,
+            )
+
+            text = ""
+            for segment in segments:
+                text += segment.text
+            return self._normalize_transcript(text.strip())
+        finally:
+            try:
+                import os
+                os.unlink(temp_path)
+            except Exception:
+                pass
+
     def _normalize_transcript(self, text):
         if not text:
             return text
@@ -133,6 +218,15 @@ class STT:
                 return self._transcribe_groq(audio)
 
             return self._transcribe_local(audio)
+        except Exception as e:
+            return f"STT Error: {e}"
+
+    def transcribe_uploaded_audio(self, audio_file):
+        try:
+            if self.provider == "groq":
+                return self._transcribe_groq_bytes(audio_file)
+
+            return self._transcribe_local_file(audio_file)
         except Exception as e:
             return f"STT Error: {e}"
 
