@@ -95,6 +95,14 @@ class Brain:
         ]
         return any(token in lowered for token in triggers)
 
+    def _with_boss_prefix(self, response):
+        text = str(response or "").strip()
+        if not text:
+            return "Boss."
+        if text.lower().startswith("boss"):
+            return text
+        return f"Boss, {text}"
+
     def _build_conversation_memory_context(self, user_input):
         recalled = self.archive_store.recall(user_input, CONVERSATION_MEMORY_RECALL_K)
         if not recalled:
@@ -119,7 +127,7 @@ class Brain:
 
         remembered_name = self.profile_store.get_name()
         if self._is_identity_question(user_input) and remembered_name:
-            response = f"You are {remembered_name}."
+            response = self._with_boss_prefix(f"You are {remembered_name}.")
             self.history.append({'role': 'user', 'content': user_input})
             self.history.append({'role': 'assistant', 'content': response})
             self.history = self.history[-self.max_history:]
@@ -174,6 +182,8 @@ class Brain:
             response = self.client.stream(messages)  # streaming
         else:
             response = self._run_tool_loop(messages)
+
+        response = self._with_boss_prefix(response)
 
         assistant_message = {
             'role': 'assistant',
@@ -278,32 +288,76 @@ class Brain:
             if not tool_call and loop_idx == 0:
                 last_user = messages[-1].get("content", "")
                 lower_user = last_user.lower()
-                is_latest_news_query = (
+                site_match = re.search(r"\bsite:([\w.-]+)", lower_user)
+                site = site_match.group(1) if site_match else ""
+                cleaned_user = re.sub(r"\bsite:[\w.-]+", "", last_user, flags=re.IGNORECASE).strip()
+
+                # --- Broad real-time / current-events query detector ---
+                # Trigger search_web whenever the user asks about something
+                # that could have changed recently, across ANY topic.
+                _REALTIME_TIME_SIGNALS = [
+                    "today", "tonight", "this week", "this month", "right now",
+                    "latest", "current", "live", "schedule", "fixture",
+                    "upcoming", "yesterday", "tomorrow", "news", "update",
+                    "price", "score", "result", "winner", "who won",
+                    "what happened", "just happened", "recently",
+                ]
+                _REALTIME_TOPIC_SIGNALS = [
+                    # Sports
+                    "ipl", "cricket", "football", "nba", "f1", "match", "league",
+                    "tournament", "cup", "series", "fifa", "tennis", "chess",
+                    # Finance
+                    "bitcoin", "crypto", "stock", "market", "price", "dollar",
+                    "rupee", "gold", "nifty", "sensex", "share",
+                    # News / politics
+                    "election", "government", "minister", "president", "war",
+                    "conflict", "earthquake", "flood", "disaster", "launch",
+                    # Tech
+                    "gpt", "openai", "google", "apple", "tesla", "spacex",
+                    "release", "version", "update",
+                    # Entertainment
+                    "oscar", "grammy", "emmy", "box office", "film", "movie",
+                    "series", "award",
+                ]
+
+                is_realtime_query = (
                     not lower_user.startswith("tool result:") and
-                    any(
-                        key in lower_user for key in [
-                            "latest news",
-                            "current news",
-                            "news about",
-                            "latest update",
-                            "latest updates",
-                            "what's happening",
-                            "whats happening",
-                            "search the web",
-                            "web search",
-                            "today news",
-                            "this week",
-                        ]
-                    )
+                    not lower_user.startswith("web search results:") and
+                    any(ts in lower_user for ts in _REALTIME_TIME_SIGNALS) and
+                    any(tp in lower_user for tp in _REALTIME_TOPIC_SIGNALS)
                 )
 
-                if is_latest_news_query:
-                    query = last_user
+                is_latest_news_query = (
+                    not lower_user.startswith("tool result:") and
+                    not lower_user.startswith("web search results:") and
+                    any(key in lower_user for key in [
+                        "latest news", "current news", "news about",
+                        "what's happening", "whats happening",
+                        "search the web", "web search",
+                    ])
+                )
+
+                if is_realtime_query or is_latest_news_query:
+                    # Extract the actual question text (strip context prefixes)
+                    query = cleaned_user.strip()
                     marker = "question:"
                     if marker in lower_user:
                         idx = lower_user.rfind(marker)
                         query = last_user[idx + len(marker):].strip()
-                    tool_call = ("search_web", {"query": query, "max_results": 5})
+                    if not query:
+                        query = last_user
+
+                    tool_arguments = {"query": query, "max_results": 5}
+
+                    if site:
+                        # User explicitly specified a site
+                        tool_arguments["site"] = site
+                    elif "ipl" in lower_user or "cricket" in lower_user:
+                        # Auto-route IPL/cricket to cricbuzz for structured data
+                        tool_arguments["site"] = "cricbuzz.com"
+                    # All other topics: no site restriction, use open search
+
+                    tool_call = ("search_web", tool_arguments)
 
             if tool_call:
                 # Step 3: extract tool name and arguments
@@ -317,20 +371,58 @@ class Brain:
 
                 # step 4: execute tool
                 result = call_tool(tool_name, arguments)
+
+                # If search_web fails or returns nothing due to a site filter,
+                # automatically retry without the site restriction.
                 if tool_name == "search_web" and isinstance(result, dict):
-                    answer = result.get("answer")
-                    if answer:
-                        return answer
+                    has_error = bool(result.get("error"))
+                    has_no_results = not result.get("raw")
+                    if (has_error or has_no_results) and arguments.get("site"):
+                        retry_args = {k: v for k, v in arguments.items() if k != "site"}
+                        retry_args.setdefault("max_results", 5)
+                        result = call_tool(tool_name, retry_args)
 
-                    # Hard fallback for web search only.
-                    raw = result.get("raw", [])
-                    if raw:
-                        return raw[0].get("snippet", "I couldn't find a reliable answer.")
-
+                if tool_name == "search_web" and isinstance(result, dict):
                     if result.get("error"):
-                        return f"I could not complete '{tool_name}': {result['error']}"
+                        return f"I could not complete the web search: {result['error']}"
 
-                    return "I couldn't find a reliable answer for that."
+                    # Build a compact context from all search results and let
+                    # the LLM synthesize a clean, natural-language answer.
+                    raw = result.get("raw", [])
+                    if not raw:
+                        return "I couldn't find a reliable answer for that."
+
+                    context_parts = []
+                    for r in raw[:4]:
+                        snippet = (r.get("content") or r.get("snippet", "")).strip()
+                        title = r.get("title", "").strip()
+                        url = r.get("url", "").strip()
+                        if snippet:
+                            context_parts.append(
+                                f"[Source: {title}]\n{snippet[:700]}\nURL: {url}"
+                            )
+
+                    if not context_parts:
+                        return "I couldn't find a reliable answer for that."
+
+                    search_context = "\n\n---\n\n".join(context_parts)
+                    # Feed to LLM for a polished, specific answer
+                    messages.append({
+                        "role": "assistant",
+                        "content": json.dumps({"tool": tool_name, "arguments": arguments})
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            f"Web search results:\n\n{search_context}\n\n"
+                            "Using ONLY the above search results, answer the original question "
+                            "directly and concisely. Be specific — name the teams, players, scores, "
+                            "or facts as found in the results. Do NOT call any more tools. "
+                            "If the specific answer is not in the results, say so briefly."
+                        )
+                    })
+                    # Let loop continue so LLM can respond
+                    continue
 
                 # existing error handling
                 if isinstance(result, dict) and result.get("error"):

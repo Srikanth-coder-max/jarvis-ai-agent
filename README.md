@@ -1,6 +1,6 @@
-# Jarvis AI Agent
+# ContextualVoice AI Agent
 
-Jarvis is a local-first AI assistant that combines chat, voice, live web search, and document-grounded RAG in one interface. It is built to solve the context-loss problem that happens when a chatbot cannot remember prior conversation, search your files, or answer from live sources without switching tools.
+ContextualVoice is a local-first AI assistant that combines chat, voice, live web search, and document-grounded RAG in one interface. It is built to solve the context-loss problem that happens when a chatbot cannot remember prior conversation, search your files, or answer from live sources without switching tools.
 
 ## Description
 
@@ -12,11 +12,11 @@ This project is a personal AI workspace for grounded answers, not just generic c
 | --- | --- |
 | Language | Python |
 | UI | Streamlit |
-| LLM layer | Groq-compatible client, Ollama-compatible fallback |
+| LLM layer | Groq, Gemini, Ollama |
 | RAG | sentence-transformers, ChromaDB, pypdf, tiktoken |
 | Memory | JSON chat history, profile memory, persistent Chroma archive |
 | Voice | faster-whisper, sounddevice, pyttsx3 |
-| Web research | ddgs |
+| Web research | ddgs, BeautifulSoup4 |
 | API layer | FastAPI, Uvicorn (optional / experimental) |
 | System tools | psutil |
 
@@ -105,11 +105,13 @@ Use short command-style prompts for best tool routing reliability.
 Create a `.env` file in the project root and set the provider and memory paths you want to use.
 
 ```env
-LLM_PROVIDER=groq
+LLM_PROVIDER=gemini
 STT_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=llama-3.1-8b-instant
 GROQ_STT_MODEL=whisper-large-v3-turbo
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
 TODOIST_API_KEY=your_todoist_api_token_here
 EMBED_MODEL=all-MiniLM-L6-v2
 CHAT_MEMORY_PATH=./memory/chat_history.json
@@ -141,7 +143,8 @@ If you want to link the project to research, cite the retrieval and memory appro
 ## Troubleshooting
 
 - If Groq authentication fails, verify that `GROQ_API_KEY` is set correctly in `.env`.
-- If you see `429 Too Many Requests` from Groq, wait briefly and retry, or switch provider by setting `LLM_PROVIDER=ollama`.
+- If Gemini authentication fails, verify that `GEMINI_API_KEY` is set correctly in `.env` and that `LLM_PROVIDER=gemini`.
+- If you see `429 Too Many Requests`, wait briefly and retry, or switch provider by setting `LLM_PROVIDER=ollama`.
 - If Todoist task tools fail, verify that `TODOIST_API_KEY` is set in `.env`.
 - If speech recognition fails, verify that the microphone is available and the STT provider is set correctly.
 - If retrieval looks stale or incorrect, clear `chroma_db` and reingest the source documents.

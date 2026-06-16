@@ -16,3 +16,4 @@ sentence-transformers # local embeddings for RAG
 ddgs              # DuckDuckGo search for live web/news queries
 todoist-api-python
 streamlit
+beautifulsoup4==4.13.4
