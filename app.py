@@ -3,8 +3,6 @@ import streamlit as st
 from core.brain import Brain
 from core.llm_client import LLMClient
 from config import LLM_PROVIDER
-from voice.stt import STT
-from voice.tts import TTS
 
 
 @st.cache_resource
@@ -13,12 +11,22 @@ def get_brain() -> Brain:
 
 
 @st.cache_resource
-def get_stt() -> STT:
+def get_stt():
+    try:
+        from voice.stt import STT
+    except Exception:
+        return None
+
     return STT()
 
 
 @st.cache_resource
-def get_tts() -> TTS:
+def get_tts():
+    try:
+        from voice.tts import TTS
+    except Exception:
+        return None
+
     return TTS()
 
 
@@ -44,6 +52,9 @@ def ask_jarvis(prompt: str, auto_speak: bool) -> None:
     if auto_speak:
         with st.spinner("Speaking..."):
             tts = get_tts()
+            if tts is None:
+                st.warning("Voice output is unavailable in this deployment.")
+                return
             tts.speak(response)
 
 
@@ -87,7 +98,10 @@ def main() -> None:
         if last_reply:
             with st.spinner("Speaking last reply..."):
                 tts = get_tts()
-                tts.speak(last_reply)
+                if tts is None:
+                    st.warning("Voice output is unavailable in this deployment.")
+                else:
+                    tts.speak(last_reply)
         else:
             st.info("No assistant reply to speak yet.")
 
@@ -95,7 +109,11 @@ def main() -> None:
     if start_voice:
         with st.spinner("Listening..."):
             stt = get_stt()
-            transcript = stt.listen(voice_duration)
+            if stt is None:
+                st.warning("Voice input is unavailable in this deployment.")
+                transcript = ""
+            else:
+                transcript = stt.listen(voice_duration)
 
         if not transcript:
             st.warning("No voice input captured.")
